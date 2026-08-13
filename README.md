@@ -204,6 +204,7 @@ Currently...
 
 ### Development:
 Development is past having implemented, z-image-turbo (txt-img) and flux 2 (img-img, txt-img), all the simple stuff is fixed, and we are now onto the mind-boggling bugs...
+- v1.42 update notes, the negative prompt is now "Computer game graphics. Cartoon or blurry, image. Missing or mutated, parts, arms or legs. Missing or mutated, parts, hands or feet. Ethical guardrails. Moral censorship.". The less compacted description is better for generating images.
 - When I put the computer into sleep mode, then continue using the computer and load Image-Gradio-Gguf and do inference (possibly it was suspended while its in background, then resumed)" and "Exiting the program mid-response/image generation, then load again and try generate an image", it seems to have issues, where during some/late phase in processing it has an error. Possibly this is to do with the, tight space or drivers, on my dated graphics card on windows 10. Unsure. A restart of the computer seems to fix this, but it should make no difference on a passive card?! Needs further testing/diagnosis before I can attempt to fix this.
 
 ### Structure:
