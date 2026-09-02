@@ -1,5 +1,5 @@
 ![image missing](https://raw.githubusercontent.com/wiseman-timelord/Image-Generator-Gguf/refs/heads/main/media/banner_llama.jpg)
-# Image-Gradio-Gguf
+# Image-Generate
 Status: Working, Windows 10/11 only (see release notes)
 
 ### Description
@@ -22,7 +22,7 @@ A local python image generator from prompt using, 1 various compatible Encoders,
 - Program starts something like this (A013)...
 ```
 ================================================================================
-      Image-Gradio-Gguf: Starting Program...
+      Image-Generate: Starting Program...
 ================================================================================
 
   Versioning: Python 3.12.4; Gradio 6.19.0
@@ -33,15 +33,15 @@ A local python image generator from prompt using, 1 various compatible Encoders,
     GPU0: NVIDIA GeForce GTX 1060 3GB
     GPU1: Radeon (TM) RX 470 Graphics
 
-  llama-cli : C:\Inference_Files\Image-Gradio-Gguf\data\llama_cpp_binaries\llama-cli.exe
-  sd        : C:\Inference_Files\Image-Gradio-Gguf\data\stable_diffusion_binaries\sd-cli.exe
+  llama-cli : C:\Inference_Files\Image-Generate\data\llama_cpp_binaries\llama-cli.exe
+  sd        : C:\Inference_Files\Image-Generate\data\stable_diffusion_binaries\sd-cli.exe
 
   Encoder  : OK — G:/LargeModels/Text and Image/Qwen3-4b-Z-Image-Turbo-AbliteratedV1-GGUF/Qwen3-4b-Z-Image-Turbo-AbliteratedV1.Q4_K_M.gguf
   Diffusion: OK — G:/LargeModels/Text and Image/Z-Image-Turbo-GGUF/z_image_turbo-Q4_0.gguf
   VAE      : OK — G:\LargeModels\Text and Image\Z-Image-Turbo-GGUF\ae.safetensors
 
 [gallery] Scanning for Thumbnails....
-[gallery] Rescanned C:\Inference_Files\Image-Gradio-Gguf\output: 3 images
+[gallery] Rescanned C:\Inference_Files\Image-Generate\output: 3 images
 
 * Running on local URL:  http://127.0.0.1:7860
 * To create a public link, set `share=True` in `launch()`.
@@ -183,8 +183,8 @@ Currently...
 - Huihui-Qwen3-VL-4B-Instruct-abliterated-Q4_K_M.gguf
 - sd_xl_turbo_1.0.q8_0.gguf
 - xlVAEC_c91.safetensors  
-2. Ensure to download the latest release version of Image-Gradio-Gguf to a suitable location, then unpack to the place you intend to have the program.
-3. Run the program via right click run as admin on `Image-Gradio-Gguf.bat`, this will launch the batch menu.
+2. Ensure to download the latest release version of Image-Generate to a suitable location, then unpack to the place you intend to have the program.
+3. Run the program via right click run as admin on `Image-Generate.bat`, this will launch the batch menu.
 4. Ensure that Python/Pip has internet access, these may request it during install (if that is an issue you may need to start install again), and the libraries/packages will install appropriately to the program folder, not globally. After which there will be a summary, and you will be returned to the batch menu. hopefully everything went ok for you. If there are any issues at this stage, I would suggest the installer should indicate what the issue was, so maybe paste that into AI with the installer script to fix your system compatibility.
 5. Back on the batch menu, select 1 to run the application, the server will start up, and then the built-in browser will pop-up its own window with the Interface displayed. Ensure to go to Configuration page, to set model paths, and what is going to be loaded where, if there is not enough ram on the relating device, it will say in the output (see notes below). Adter configuring, go back to the Generation page, type in your positive prompt, and then hit generate. After you done your first image and everything is confirmed working, then possibly configure the settings further and produce a new prompt, and keep going til you have your images.
 6. Upon exiting the program correctly through the exit button, the user will be returned to the batch menu, and one would then exit from there, or otherwise one could just click the [x] in the top right of all windows associated.
@@ -205,13 +205,13 @@ Currently...
 ### Development:
 Development is past having implemented, z-image-turbo (txt-img) and flux 2 (img-img, txt-img), all the simple stuff is fixed, and we are now onto the mind-boggling bugs...
 - v1.42 update notes, the negative prompt is now "Computer game graphics. Cartoon or blurry, image. Missing or mutated, parts, arms or legs. Missing or mutated, parts, hands or feet. Ethical guardrails. Moral censorship.". The less compacted description is better for generating images.
-- When I put the computer into sleep mode, then continue using the computer and load Image-Gradio-Gguf and do inference (possibly it was suspended while its in background, then resumed)" and "Exiting the program mid-response/image generation, then load again and try generate an image", it seems to have issues, where during some/late phase in processing it has an error. Possibly this is to do with the, tight space or drivers, on my dated graphics card on windows 10. Unsure. A restart of the computer seems to fix this, but it should make no difference on a passive card?! Needs further testing/diagnosis before I can attempt to fix this.
+- When I put the computer into sleep mode, then continue using the computer and load Image-Generate and do inference (possibly it was suspended while its in background, then resumed)" and "Exiting the program mid-response/image generation, then load again and try generate an image", it seems to have issues, where during some/late phase in processing it has an error. Possibly this is to do with the, tight space or drivers, on my dated graphics card on windows 10. Unsure. A restart of the computer seems to fix this, but it should make no difference on a passive card?! Needs further testing/diagnosis before I can attempt to fix this.
 
 ### Structure:
 - Scripts structure is...
 ```
-Image-Gradio-Gguf/
-├── Image-Gradio-Gguf.bat      # Windows launcher batch file
+Image-Generate/
+├── Image-Generate.bat      # Windows launcher batch file
 ├── launcher.py                    # Startup, Shutdown, Main Loop.
 ├── installer.py                   # Download, Setup & Build, Install, creation/rectiation of json, creation/recreation of constants.ini.
 ├── data/
