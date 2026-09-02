@@ -1364,7 +1364,7 @@ def _http_download(url: str, dest: Path,
     for attempt in range(1, retries + 1):
         have = part.stat().st_size if part.exists() else 0
         req = urllib.request.Request(url, headers={
-            "User-Agent": "Image-Gradio-Gguf-installer",
+            "User-Agent": "Images-Generate-installer",
             "Accept": "application/octet-stream",
         })
         if have:
@@ -2058,7 +2058,7 @@ def _detect_build_tools() -> Tuple[Optional[Path], Optional[Path]]:
 
 def _print_install_banner(cpu: Dict[str, Any], vk: Dict[str, Any]) -> None:
     git, cmake = _detect_build_tools()
-    header("Image-Gradio-Gguf — Install Method")
+    header("Images-Generate — Install Method")
     print()
     print()
     print("  System Detections...")
@@ -2151,7 +2151,7 @@ def _missing_build_tools() -> List[str]:
     return missing
 
 def _print_backend_banner(vk: Dict[str, Any], missing_tools: List[str]) -> None:
-    header("Image-Gradio-Gguf — Backend Selection")
+    header("Images-Generate — Backend Selection")
     print()
     print()
     print()
@@ -2358,7 +2358,7 @@ def main() -> None:
     args = parser.parse_args()
     
     ensure_dirs()
-    header("Image-Gradio-Gguf — Initialize Install")
+    header("Images-Generate — Initialize Install")
     
     if args.detect_only:
         cpu, vk = run_detection()
@@ -2409,7 +2409,7 @@ def main() -> None:
         if choice == "1":
             t0 = time.time()
             use_vulkan, force_compile = _choose_backend(vk)
-            header("Image-Gradio-Gguf - Installation")
+            header("Images-Generate - Installation")
             _purge_for_clean_install()
             write_constants(cpu, vk, use_vulkan=use_vulkan)
             _run_deps(cpu)
@@ -2428,7 +2428,7 @@ def main() -> None:
         if choice == "2":
             t0 = time.time()
             use_vulkan, force_compile = _choose_backend(vk)
-            header("Image-Gradio-Gguf - Installation")
+            header("Images-Generate - Installation")
             write_constants(cpu, vk, use_vulkan=use_vulkan)
             _run_deps(cpu)
             _run_build(cpu, use_vulkan, force_compile=force_compile)

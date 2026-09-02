@@ -56,9 +56,9 @@ import scripts.configure as configure
 import scripts.utilities as utilities
 import scripts.display as display
 
-APP_TITLE = "Image-Gradio-Gguf"
+APP_TITLE = "Images-Generate"
 SERVER_NAME = "127.0.0.1"
-SERVER_PORT = 7860
+SERVER_PORT = 7866
 
 
 # Injected into the page <head>. Gradio renders its textareas with spellcheck

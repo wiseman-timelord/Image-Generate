@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-display.py - Gradio 6 UI for Image-Gradio-Gguf.
+display.py - Gradio 6 UI for Images-Generate.
 Four tabs: Generate | Configuration | Preferences | Debug / Info
 Build/install functionality lives in installer.py only.
 
@@ -3451,7 +3451,7 @@ def _copy_to_clipboard(text: str) -> str:
 def _build_debug_tab_inner() -> gr.Textbox:
     """Build Debug tab widgets; info section above, debug info below."""
     with gr.Group():
-        gr.Markdown("### Image-Gradio-Gguf")
+        gr.Markdown("### Images-Generate")
         gr.HTML(
             "<p>A Windows local image generator using Gradio, llama.cpp and stable-diffusion.cpp, by "
             "<a href=\"mailto:wiseman-timelord@mail.com\">WiseMan-Time-Lord</a> at "
@@ -3824,8 +3824,8 @@ Input/Output sections around. ────────────────�
     _css = _css.replace("__INPUT_THUMB__", str(configure.get_input_thumbnail_size()))
     _css = _css.replace("__INPUT_PAD__", str(configure.INPUT_GALLERY_PADDING))
 
-    with gr.Blocks(title="Image-Gradio-Gguf") as app:
-        gr.Markdown("# Image-Gradio-Gguf")
+    with gr.Blocks(title="Images-Generate") as app:
+        gr.Markdown("# Images-Generate")
 
         # ── Tabs ──────────────────────────────────────────────────────────────
         with gr.Tabs():
