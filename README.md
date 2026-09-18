@@ -194,12 +194,13 @@ Currently...
 - If you want to test the image generation, then I suggested just write something like `A picture of a Woodchuck standing next to a pile of wood while juggling small logs of wood.`, or `A man walking his dog on the meadow on a sunny day.`, or if you want to do image to image then possibly `A photo-realistic version of the provided image.`.
 
 ### Notation:
+- Do not overload your GPU, let me tell you, one needs flux2-Klein-4b in Q8 with diffuse placement is Split, and even then, 512x512 and 512x768 and 768x512, seems to work good, while any larger image size will cause graphics driver crash/corruption for me. Users are advised to do AI research with a ok AI chatbot beforehand, to work out if a given model will fit on their GPU.
 - Clarifying, SDXL Turbo and Flux1 Schnell, Img to Img is bad, its just like a morph between prompt image and the selected image, while Flux2 4b, uses specific instructed parts in the generated image.
 - Flux1, Flux2, Z-Image Turbo are all SFW, where as SDXL is, SFW and NSFW. Using Flux2 then SDXL in 2 stage process, can possibly work, but best solution would be a NSFW trained version of Flux2. 
 - If you want to generate a 1024x1024 size image, be aware, this creates ~3GB of overhead on the GPU if thats where the Image Generation model is loaded, while a 768x768 image would have ~1.8GB of overhead...consider such things when it tells you it ran out of ram.
 - The assessment by OPUS said, the reason why I could not fit Q4 ImageGen model with DP on Full while could fit Q8 ImageGen model with DP on Split, is because the difference between DP on Split or FUll, is up to 4.6GB extra on top. Keep in mind the models are done in 1-shot mode not m-lock.
 - Something to consider is how much memory the Image model takes, image models need more space when loaded compared to a text model, if yo uneed more room for the image model then try Diffuser Placement is set to Split. So some tweaking settings may be requried with low VRAM. 
-- 512x512 or less on flux 2 seems buggy, however, 512x512 and 512x768 and 768x512, seems to work good, while for me 768x768 will not fit in 8GB VRAM when diffuse placement is Split.
+
 - Some updates will not require complete reinstall, you may be able to just replace the scripts in the installed directory. Check the last update notes on the installer up there to figure out if there were any updates to the installer.
 
 ### Development:
@@ -230,5 +231,6 @@ Image-Generate/
 ```
 
 ### Disclaimer:
+- It is highlighted again...Do not overload your GPU, let me tell you, one needs flux2-Klein-4b in Q8 with diffuse placement is Split, and even then, 512x512 and 512x768 and 768x512, seems to work good, while any larger image size will cause graphics driver crash/corruption for me. Users are advised to do AI research with a ok AI chatbot beforehand, to work out if a given model will fit on their GPU. If you do not follow this advice, then you may cause graphics driver corruption or worse, possibly requiring factory install of driver (its an option in the installer, at least on AMD cards).
 - Users under the legal age to buy porn in their own country, should NOT be downloading NSFW models, and then using them to generate pornographic pictures. The same laws apply to NSFW large language models, as does apply to the normal laws for Pornography. If you are an adult already, then you are ok to download NSFW models, and likely have had sex already or not, and as such are trusted to get on unsupervised. 
 - While this program is designed to be able to create images without filtering, the idea being simpler less complex prompting in order to achieve intended result, for purposes such as for example illustrating a book, it may also generate images you dont intend, but you the "User" yourself are responsible for the contents/theme in the outputted images, by the action of the Editing of, the Positive Promt (which by default starts blank) and the modification of the Negative Prompt (which by default contains some helpful generic text segments not intended for image).
