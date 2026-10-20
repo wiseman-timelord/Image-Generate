@@ -1280,7 +1280,7 @@ SAMPLER_MAP: Dict[str, str] = {
 # without telling the UI, so the dropdown would show one value while the
 # actual output used another. Restricting the choices to confirmed-safe,
 # already-64-aligned values eliminates that mismatch entirely.
-IMAGE_SIZES       = [256, 360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
+IMAGE_SIZES       = [256, 360, 512, 640, 720, 768, 1024, 1280, 1536, 1792, 2048]
 
 # Per-family width/height choices (both axes share a list). All multiples of
 # 256 within each family's usable band:
@@ -1295,8 +1295,8 @@ IMAGE_SIZES       = [256, 360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
 # list when a model is selected, keeping a currently-valid value and only
 # snapping an out-of-band one to a sensible default. VRAM, not this list, is the
 # practical limit at the top end (2048 forces heavy CPU-offload on 8GB).
-FLUX2_IMAGE_SIZES  = [360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
-ZIMAGE_IMAGE_SIZES = [256, 360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
+FLUX2_IMAGE_SIZES  = [360, 512, 640, 720, 768, 1024, 1280, 1536, 1792, 2048]
+ZIMAGE_IMAGE_SIZES = [256, 360, 512, 640, 720, 768, 1024, 1280, 1536, 1792, 2048]
 
 # FLUX.1 (dev, schnell, and the CivitAI finetunes quantized from them, e.g.
 # fluxedUp). Trained at 1024 and, like Flux.2, it does NOT degrade gracefully
