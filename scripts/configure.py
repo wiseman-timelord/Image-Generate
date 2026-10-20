@@ -1280,7 +1280,7 @@ SAMPLER_MAP: Dict[str, str] = {
 # without telling the UI, so the dropdown would show one value while the
 # actual output used another. Restricting the choices to confirmed-safe,
 # already-64-aligned values eliminates that mismatch entirely.
-IMAGE_SIZES       = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
+IMAGE_SIZES       = [256, 360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
 
 # Per-family width/height choices (both axes share a list). All multiples of
 # 256 within each family's usable band:
@@ -1295,8 +1295,8 @@ IMAGE_SIZES       = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
 # list when a model is selected, keeping a currently-valid value and only
 # snapping an out-of-band one to a sensible default. VRAM, not this list, is the
 # practical limit at the top end (2048 forces heavy CPU-offload on 8GB).
-FLUX2_IMAGE_SIZES  = [512, 768, 1024, 1280, 1536, 1792, 2048]
-ZIMAGE_IMAGE_SIZES = [256, 512, 768, 1024, 1280, 1536, 1792, 2048]
+FLUX2_IMAGE_SIZES  = [360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
+ZIMAGE_IMAGE_SIZES = [256, 360, 512, 640, 768, 1024, 1280, 1536, 1792, 2048]
 
 # FLUX.1 (dev, schnell, and the CivitAI finetunes quantized from them, e.g.
 # fluxedUp). Trained at 1024 and, like Flux.2, it does NOT degrade gracefully
@@ -1608,6 +1608,21 @@ APP_STATE: Dict[str, Any] = {
     # session-state accessors below). Loaded once at startup, written back
     # only when the folder actually changes.
     "last_image_browse_dir": "",
+
+    # ── Emergency Stop / generation cancel ─────────────────────────────────
+    # cancel_requested : set True by the Emergency Stop button (display.py).
+    #                    Checked by the generate polling loop and by the
+    #                    inference subprocess readers so a stop aborts both
+    #                    the encode and diffusion phases promptly.
+    # active_processes: list of live subprocess.Popen handles (llama-completion
+    #                    and/or sd-cli). One-shot backends, so terminate()+kill()
+    #                    is safe and is the whole of "releasing resources".
+    # generation_output_paths: paths of partial/complete outputs written during
+    #                    the current run, so a cancel can delete them rather
+    #                    than leave half-finished files in .\output.
+    "cancel_requested": False,
+    "active_processes": [],
+    "generation_output_paths": [],
 }
 
 
