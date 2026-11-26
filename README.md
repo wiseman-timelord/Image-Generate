@@ -121,6 +121,7 @@ diffusion_pytorch_model.safetensors
 Now working, It can do, SFW and limited NSFW, and produces superior images to the 4B...
 - Encoders — (only 1):
 ```
+Qwen3-8B-abliterated-GGUF      (this one works)
 Qwen3-8b-erotic-heretic-Q#.gguf
 Qwen3-8B-Gemini-2.5-Flash-Uncensored-Q#.gguf
 qwen_3_8b.Q#.gguf              (plain Qwen3-8B)
@@ -195,7 +196,7 @@ Currently...
 - If you want to test the image generation, then I suggested just write something like `A picture of a Woodchuck standing next to a pile of wood while juggling small logs of wood.`, or `A man walking his dog on the meadow on a sunny day.`, or if you want to do image to image then possibly `A photo-realistic version of the provided image.`.
 
 ### Notation:
-- Encoder settings; a thinking model should use 1024 batch output. a instruct model should use 512 batch output. Context size should always be 8192.
+- Encoder settings; a thinking model may use 1024 batch output, but if it uses more it may mess up the image, so see from debug output in terminal if it completed its thinking with a </think> before outputting encoder prompt.A instruct model should use 512 batch output. Context size should always be 8192.
 - Do not overload your GPU, let me tell you, one needs flux2-Klein-4b in Q8 with diffuse placement is Split, and even then, 512x512 and 512x768 and 768x512, seems to work good, while any larger image size will cause graphics driver crash/corruption for me. Users are advised to do AI research with a ok AI chatbot beforehand, to work out, if and how, a given model will fit on their GPU.
 - Clarifying, SDXL Turbo and Flux1 Schnell, Img to Img is bad, its just like a morph between prompt image and the selected image, while Flux2 4b, uses specific instructed parts in the generated image.
 - Flux1, Flux2, Z-Image Turbo are all SFW, where as SDXL is, SFW and NSFW. Using Flux2 then SDXL in 2 stage process, can possibly work, but best solution would be a NSFW trained version of Flux2. 
