@@ -92,6 +92,143 @@ def find_llama_completion() -> Optional[Path]:
 
 
 # ---------------------------------------------------------------------------
+# Active subprocess registry + Emergency Stop
+# ---------------------------------------------------------------------------
+# Both backends are one-shot CLIs (llama-completion, sd-cli). While a run is
+# live their Popen handles live in configure.APP_STATE["active_processes"] so
+# the Emergency Stop button can terminate them from another Gradio worker
+# thread. cancel_requested is the cooperative flag the readers poll; the
+# hard kill is what actually unblocks a stuck encode/diffuse.
+
+def register_process(proc) -> None:
+    """Track a live backend subprocess so Emergency Stop can reach it."""
+    if proc is None:
+        return
+    procs = configure.APP_STATE.setdefault("active_processes", [])
+    if proc not in procs:
+        procs.append(proc)
+
+
+def unregister_process(proc) -> None:
+    """Drop a finished/killed process from the registry."""
+    procs = configure.APP_STATE.get("active_processes") or []
+    try:
+        while proc in procs:
+            procs.remove(proc)
+    except Exception:
+        pass
+    configure.APP_STATE["active_processes"] = procs
+
+
+def register_output_path(path: str) -> None:
+    """Remember an output path written during this run (for cancel cleanup)."""
+    if not path:
+        return
+    paths = configure.APP_STATE.setdefault("generation_output_paths", [])
+    if path not in paths:
+        paths.append(path)
+
+
+def is_cancel_requested() -> bool:
+    return bool(configure.APP_STATE.get("cancel_requested"))
+
+
+def request_cancel() -> None:
+    """Set the cooperative cancel flag. Does not kill processes by itself."""
+    configure.APP_STATE["cancel_requested"] = True
+
+
+def clear_cancel_state() -> None:
+    """Reset cancel flag and registries at the start of a fresh run."""
+    configure.APP_STATE["cancel_requested"] = False
+    configure.APP_STATE["active_processes"] = []
+    configure.APP_STATE["generation_output_paths"] = []
+
+
+def kill_active_processes() -> int:
+    """Terminate every registered backend process. Returns how many were signalled.
+
+    Windows: terminate() maps to TerminateProcess, which is immediate for
+    these CLIs. kill() is a second pass for anything that ignored it. Safe
+    on already-exited handles.
+    """
+    procs = list(configure.APP_STATE.get("active_processes") or [])
+    killed = 0
+    for proc in procs:
+        try:
+            if proc.poll() is None:
+                proc.terminate()
+                killed += 1
+        except Exception as e:
+            print(f"[stop] terminate failed: {e}", flush=True)
+    # Brief grace, then hard-kill anything still alive.
+    if procs:
+        time.sleep(0.15)
+    for proc in procs:
+        try:
+            if proc.poll() is None:
+                proc.kill()
+        except Exception:
+            pass
+        unregister_process(proc)
+    return killed
+
+
+def cleanup_cancelled_outputs() -> int:
+    """Delete partial/complete output files recorded for the cancelled run."""
+    paths = list(configure.APP_STATE.get("generation_output_paths") or [])
+    removed = 0
+    for p in paths:
+        try:
+            fp = Path(p)
+            if fp.exists() and fp.is_file():
+                fp.unlink()
+                removed += 1
+                print(f"[stop] discarded output: {fp}", flush=True)
+            # sd.cpp batch suffix _0/_1/... — also drop siblings with the same stem
+            parent = fp.parent
+            stem = fp.stem
+            # If stem ends with _N, also try the bare stem; if bare, try _N siblings
+            candidates = list(parent.glob(stem + ".*" )) if parent.exists() else []
+            bare = stem.rsplit("_", 1)[0] if "_" in stem else stem
+            if parent.exists():
+                candidates.extend(parent.glob(bare + "_*." + fp.suffix.lstrip(".")))
+                candidates.append(parent / (bare + fp.suffix))
+            for c in candidates:
+                try:
+                    if c.exists() and c.is_file() and str(c) != str(fp):
+                        c.unlink()
+                        removed += 1
+                        print(f"[stop] discarded output: {c}", flush=True)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"[stop] could not remove {p}: {e}", flush=True)
+    configure.APP_STATE["generation_output_paths"] = []
+    return removed
+
+
+def emergency_stop() -> str:
+    """Full Emergency Stop: flag cancel, kill backends, discard outputs.
+
+    Called from the Emergency Stop button handler on a Gradio worker thread.
+    The generate generator's poll loop sees cancel_requested and exits to the
+    idle UI state. Returns a short status message for the status bar.
+    """
+    request_cancel()
+    n = kill_active_processes()
+    removed = cleanup_cancelled_outputs()
+    msg_bits = ["Generation stopped by user."]
+    if n:
+        msg_bits.append(f"Terminated {n} backend process(es).")
+    if removed:
+        msg_bits.append(f"Discarded {removed} output file(s).")
+    msg = " ".join(msg_bits)
+    print(f"[stop] {msg}", flush=True)
+    return msg
+
+
+# ---------------------------------------------------------------------------
 # Model probing
 # ---------------------------------------------------------------------------
 
@@ -726,6 +863,86 @@ def _resolve_gpu_layers(raw: int, model_path: str) -> int:
     return _ENCODER_LAYERS_FALLBACK
 
 
+# llama-completion merges its log stream into the same stdout we read for the
+# generated text (stderr=STDOUT). Log lines look like:
+#   0.00.125.749 I llama_completion: load the model ...
+#   0.06.068.220 I          (bare timestamp + severity, nothing after)
+# Without filtering, those lines became the Flux.2 -p prompt and produced
+# form/blank images. Match with optional trailing text so bare lines die too.
+_LLAMA_LOG_LINE_RE = re.compile(
+    r"^\d+\.\d+\.\d+\.\d+\s+[IWEDdiwe]\b"
+)
+_THINK_BLOCK_RE = re.compile(
+    r"<think>.*?</think>", re.DOTALL | re.IGNORECASE
+)
+_THINK_OPEN_RE = re.compile(r"<think>.*", re.DOTALL | re.IGNORECASE)
+_LLAMA_NOISE_LINE_PREFIXES = (
+    "system_info:", "sampler seed:", "sampler params:", "sampler chain:",
+    "generate: n_ctx", "common_perf_print:", "llama_completion:",
+    "common_init", "load:", "llama_context:", "repeat_last_n",
+    "dry_multiplier", "top_k =", "mirostat", "logits ->", "| CPU :",
+    "sampling time", "samplers time", "load time", "prompt eval time",
+    "eval time", "total time", "unaccounted time", "graphs reused",
+)
+
+
+def _clean_enhancer_stdout(raw: str) -> str:
+    """Return only the model's answer text from llama-completion stdout.
+
+    Drops log lines, <think> blocks, and chat-template markers. Returns ""
+    when nothing usable remains so the caller can fall back to the original
+    user prompt instead of feeding timestamps to sd-cli -p.
+    """
+    if not raw:
+        return ""
+    text = raw
+    for marker in ("<|im_start|>assistant", "<|start_header_id|>assistant"):
+        if marker in text:
+            text = text.split(marker)[-1]
+            break
+    for marker in ("<|im_end|>", "<|im_start|>", "<|eot_id|>", "</s>"):
+        text = text.replace(marker, "")
+    # Prefer text after a closed think block; drop incomplete think runs.
+    if re.search(r"</think>", text, re.IGNORECASE):
+        text = re.split(r"</think>", text, maxsplit=1, flags=re.IGNORECASE)[-1]
+    text = _THINK_BLOCK_RE.sub("", text)
+    text = _THINK_OPEN_RE.sub("", text)
+    # Strip every timestamp+severity token first (line-leading or mid-line),
+    # then drop lines that are pure noise. This recovers cases where the
+    # answer was concatenated onto the same line as log fragments:
+    # "0.06.031.986 I 0.06.032.350 I A strikingly attractive woman..."
+    _ts = re.compile(r"\d+\.\d+\.\d+\.\d+\s+[IWEDdiwe]\b\s*")
+    text = _ts.sub("", text)
+    kept: List[str] = []
+    for line in text.splitlines():
+        s = line.strip()
+        if not s:
+            continue
+        low = s.lower()
+        if any(low.startswith(p.lower()) for p in _LLAMA_NOISE_LINE_PREFIXES):
+            continue
+        # Drop lines that are only digits/dots/severity letters after stripping.
+        if re.match(r"^[\d.\sIWEDdiwe]+$", s) and len(s) < 40:
+            continue
+        kept.append(s)
+    text = "\n".join(kept)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    text = re.sub(r"\s{2,}", " ", text).strip()
+    if len(text) < 10:
+        return ""
+    tokens = text.split()
+    logish = sum(
+        1 for w in tokens
+        if w in ("llama_completion:", "common_init_result:", "sampler",
+                 "n_threads", "system_info:", "common_perf_print:")
+        or re.fullmatch(r"\d+\.\d+\.\d+\.\d+", w)
+        or re.fullmatch(r"[IWEDdiwe]", w)
+    )
+    if logish >= 2 and logish * 4 >= len(tokens):
+        return ""
+    return text
+
+
 def enhance_prompt(prompt: str, cfg: Dict[str, Any],
                    progress_callback: Optional[Callable] = None,
                    _oom_status_callback: Optional[Callable[[str], None]] = None,
@@ -870,11 +1087,52 @@ def enhance_prompt(prompt: str, cfg: Dict[str, Any],
                     {"phase": "encoding", "phase_start": phase_t0})
 
         try:
-            result = subprocess.run(
-                args, capture_output=True, text=True,
-                timeout=120, encoding="utf-8", errors="replace", env=env,
+            # Popen (not run) so Emergency Stop can terminate mid-encode.
+            # stdout is read incrementally; cancel_requested is checked each
+            # chunk so a stop does not wait for the full 120s timeout.
+            process = subprocess.Popen(
+                args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace", env=env,
             )
-            combined_output = result.stdout + result.stderr
+            register_process(process)
+            stdout_chunks: List[str] = []
+            cancelled = False
+            try:
+                assert process.stdout is not None
+                while True:
+                    if is_cancel_requested():
+                        cancelled = True
+                        break
+                    line = process.stdout.readline()
+                    if line == "" and process.poll() is not None:
+                        break
+                    if line:
+                        stdout_chunks.append(line)
+                if cancelled:
+                    try:
+                        process.terminate()
+                        process.wait(timeout=2)
+                    except Exception:
+                        try:
+                            process.kill()
+                        except Exception:
+                            pass
+                    unregister_process(process)
+                    print("[enhance_prompt] cancelled by Emergency Stop", flush=True)
+                    return prompt
+                try:
+                    process.wait(timeout=120)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=5)
+                    unregister_process(process)
+                    break
+            finally:
+                unregister_process(process)
+
+            result_stdout = "".join(stdout_chunks)
+            combined_output = result_stdout
+            returncode = process.returncode if process.returncode is not None else -1
 
             # Encoder Model Debug (Preferences page, off by default): dump what
             # the encoder actually produced to the background console, so garbled
@@ -883,16 +1141,16 @@ def enhance_prompt(prompt: str, cfg: Dict[str, Any],
             try:
                 if configure.load_preferences().get("encoder_model_debug", False):
                     print("\n*** ENCODER DEBUG BEGIN ***\n", flush=True)
-                    print(result.stdout.rstrip("\n"), flush=True)
+                    print(result_stdout.rstrip("\n"), flush=True)
                     print("\n*** ENCODER DEBUG END ***\n", flush=True)
             except Exception:
                 pass
 
             # Check for OOM before inspecting the text output
-            if result.returncode != 0 and _is_oom_output(combined_output):
+            if returncode != 0 and _is_oom_output(combined_output):
                 print(
                     f"[enhance_prompt] OOM detected (attempt {attempt + 1}, "
-                    f"ngl={ngl}, exit={result.returncode})",
+                    f"ngl={ngl}, exit={returncode})",
                     flush=True,
                 )
                 if attempt < max_attempts - 1:
@@ -907,15 +1165,11 @@ def enhance_prompt(prompt: str, cfg: Dict[str, Any],
                     _oom_status_callback(oom_msg)
                 return prompt
 
-            output = result.stdout.strip()
-            if output:
-                for marker in ("<|im_start|>assistant", "<|start_header_id|>assistant"):
-                    if marker in output:
-                        output = output.split(marker)[-1]
-                        break
-                for marker in ("<|im_end|>", "<|im_start|>", "<|eot_id|>"):
-                    output = output.replace(marker, "")
-                output = output.strip()
+            # Must strip llama.cpp logs + <think> before anything reaches -p.
+            # Bare timestamps like "0.06.068.220 I" previously became the entire
+            # Flux.2 prompt and produced form/blank images. Empty result → keep
+            # the user's original prompt (never feed log residue downstream).
+            output = _clean_enhancer_stdout(result_stdout)
             if output and len(output) > 10:
                 # Trim to the family's budget on a clean boundary. llama.cpp
                 # stops at the -n token count wherever it lands, which left
@@ -1156,6 +1410,12 @@ def generate_image(prompt: str, cfg: Dict[str, Any],
     # Surface OOM message to caller if enhance_prompt reported it.
     if _oom_msg:
         result["message"] = _oom_msg[-1]
+        return result
+    # enhance_prompt returns the original prompt unchanged on cancel; detect
+    # via the shared flag so we do not proceed into diffusion after a stop.
+    if is_cancel_requested():
+        result["message"] = "Cancelled by Emergency Stop."
+        result["elapsed_seconds"] = round(time.time() - t0, 2)
         return result
 
     # A hand-typed prompt hits the same downstream limit as an enhanced one --
@@ -1496,23 +1756,52 @@ def generate_image(prompt: str, cfg: Dict[str, Any],
             args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
             text=True, encoding="utf-8", errors="replace", env=env,
         )
+        register_process(process)
+        # Track the intended output so Emergency Stop can discard it if the
+        # user aborts mid-run (sd.cpp may still write a partial file).
+        register_output_path(str(output_path))
+        register_output_path(str(output_path.with_name(
+            output_path.stem + "_0" + output_path.suffix)))
         output_lines: List[str] = []
         last_step = 0
-        for line in process.stdout:
-            output_lines.append(line)
-            if progress_callback and ("step" in line.lower() or "%" in line or "/" in line):
-                step_info = _parse_step_line(line, total_steps)
-                info: Dict[str, Any] = {"phase": "diffusion", "phase_start": diffusion_t0}
-                if step_info:
-                    last_step = step_info[0]
-                    info["step"] = step_info[0]
-                    info["total_steps"] = step_info[1]
+        cancelled = False
+        try:
+            assert process.stdout is not None
+            for line in process.stdout:
+                if is_cancel_requested():
+                    cancelled = True
+                    break
+                output_lines.append(line)
+                if progress_callback and ("step" in line.lower() or "%" in line or "/" in line):
+                    step_info = _parse_step_line(line, total_steps)
+                    info: Dict[str, Any] = {"phase": "diffusion", "phase_start": diffusion_t0}
+                    if step_info:
+                        last_step = step_info[0]
+                        info["step"] = step_info[0]
+                        info["total_steps"] = step_info[1]
+                    try:
+                        progress_callback(line.strip()[:100], 0.3, info)
+                    except Exception:
+                        pass
+            if cancelled:
                 try:
-                    progress_callback(line.strip()[:100], 0.3, info)
+                    if process.poll() is None:
+                        process.terminate()
+                        try:
+                            process.wait(timeout=2)
+                        except subprocess.TimeoutExpired:
+                            process.kill()
                 except Exception:
                     pass
+                unregister_process(process)
+                result["message"] = "Cancelled by Emergency Stop."
+                result["elapsed_seconds"] = round(time.time() - t0, 2)
+                print("[generate] cancelled by Emergency Stop", flush=True)
+                return result
+            process.wait(timeout=600)
+        finally:
+            unregister_process(process)
 
-        process.wait(timeout=600)
         elapsed = time.time() - t0
         diffusion_elapsed = time.time() - diffusion_t0
 

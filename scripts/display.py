@@ -1366,10 +1366,18 @@ def _build_generate_tab_inner() -> None:
 
             gr.Markdown("#### Submitting Input")
             with gr.Row(visible=configured) as _gen["generate_row"]:
-                # Single dynamic button: "Generate" (primary) when idle,
+                # Generate button: "Generate Image" (primary) when idle,
                 # "..Please Wait.." (disabled) while running. do_generate()
                 # flips it on entry and back on its final yield.
-                _gen["generate_btn"] = gr.Button("Generate Image", variant="primary", size="lg")
+                # Emergency Stop sits to its right, hidden while idle and shown
+                # (red) for the duration of a run. Clicking it sets the cancel
+                # flag, kills any live llama/sd subprocess, discards partial
+                # outputs, and lets the generate generator exit back to idle.
+                _gen["generate_btn"] = gr.Button(
+                    "Generate Image", variant="primary", size="lg")
+                _gen["stop_btn"] = gr.Button(
+                    "Emergency Stop", variant="stop", size="lg",
+                    visible=False, elem_id="emergency-stop-btn")
 
         # ── Column 3: input thumbnails, then image preview ───────────────────
         with gr.Column(scale=1):
@@ -1582,15 +1590,18 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
         preview_now  = _idle_preview_image()
         _btn_generate = gr.update(value="Generate Image", variant="primary", interactive=True)
         _btn_wait     = gr.update(value="..Please Wait..", variant="primary", interactive=False)
+        # Emergency Stop: hidden when idle, visible (red) for the whole run.
+        _stop_show = gr.update(visible=True)
+        _stop_hide = gr.update(visible=False)
 
         if not prompt or not prompt.strip():
-            yield preview_now, gallery_now, "Please enter a prompt.", _btn_generate
+            yield preview_now, gallery_now, "Please enter a prompt.", _btn_generate, _stop_hide
             return
         missing = _missing_models()
         if missing:
             yield (preview_now, gallery_now,
                    "Complete model details on Configuration page first! "
-                   f"(missing: {', '.join(missing)})", _btn_generate)
+                   f"(missing: {', '.join(missing)})", _btn_generate, _stop_hide)
             return
         c = _cfg()
 
@@ -1720,7 +1731,7 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
                                         else [_refs])
         chain_total = len(ref_batches)
 
-        configure.APP_STATE["cancel_requested"] = False
+        inference.clear_cancel_state()
 
         last_preview = preview_now
         last_gallery = gallery_now
@@ -1854,9 +1865,26 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
             # second even though we keep polling faster for image/button
             # responsiveness.
             while not _phase["done"]:
+                # Cooperative cancel: Emergency Stop sets the flag and kills
+                # the backend process; the worker will exit shortly after.
+                # We still wait for t.join() below so the thread is fully
+                # done before the next chain link (or idle UI) proceeds.
+                if inference.is_cancel_requested():
+                    # Ensure backends are dead even if the button handler
+                    # race-lost the kill (e.g. process registered after click).
+                    inference.kill_active_processes()
+                    break
                 img = _status_image(_phase["name"])
                 current_second = int(time.time() - _phase["phase_start"])
-                btn_update = _btn_wait if (first_tick and chain_idx == 1) else gr.update()
+                # First tick of first link: flip Generate to Please Wait and
+                # reveal Emergency Stop. Later ticks are no-ops for buttons
+                # so Gradio does not re-render them every 0.15s.
+                if first_tick and chain_idx == 1:
+                    btn_update = _btn_wait
+                    stop_update = _stop_show
+                else:
+                    btn_update = gr.update()
+                    stop_update = gr.update()
                 first_tick = False
 
                 status_update = gr.update()
@@ -1867,22 +1895,41 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
                 if img and img != last_shown_img:
                     last_shown_img = img
                     last_preview = img
-                    yield img, gr.update(), status_update, btn_update
+                    yield img, gr.update(), status_update, btn_update, stop_update
                 else:
-                    yield gr.update(), gr.update(), status_update, btn_update
+                    yield gr.update(), gr.update(), status_update, btn_update, stop_update
                 time.sleep(0.15)
             t.join()
 
             result = _phase["result"] or {"success": False, "message": "Unknown error"}
+            # If the user hit Emergency Stop, override the result message and
+            # abort the rest of the chain so we return to idle immediately.
+            if inference.is_cancel_requested():
+                inference.cleanup_cancelled_outputs()
+                result = {
+                    "success": False,
+                    "message": "Cancelled by Emergency Stop.",
+                    "output_path": "",
+                    "seed_used": -1,
+                    "elapsed_seconds": result.get("elapsed_seconds", 0),
+                }
+                last_result = result
+                last_gallery = _get_recent_images()
+                yield (_idle_preview_image(), last_gallery,
+                       result["message"], _btn_generate, _stop_hide)
+                _reset_inactivity_timer()
+                return
+
             last_result = result
             is_last_link = (chain_idx == chain_total)
 
             # Button only flips back to idle on the FINAL link's terminal
-            # yield — mid-chain it stays "..Please Wait.." since the next
-            # link starts immediately. On that final link, when chaining,
-            # the per-link message is replaced by the aggregate summary
-            # below rather than shown here.
+            # yield — mid-chain it stays "..Please Wait.." / Emergency Stop
+            # visible since the next link starts immediately. On that final
+            # link, when chaining, the per-link message is replaced by the
+            # aggregate summary below rather than shown here.
             btn_final = _btn_generate if is_last_link else gr.update()
+            stop_final = _stop_hide if is_last_link else gr.update()
 
             if result.get("success") and result.get("output_path"):
                 chain_successes += 1
@@ -1919,7 +1966,7 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
                 preview_update = last_preview
             else:
                 preview_update = _idle_preview_image()
-            yield preview_update, last_gallery, msg, btn_final
+            yield preview_update, last_gallery, msg, btn_final, stop_final
             # A failed link does not abort the rest of the chain — the
             # remaining reference images still get their own attempt,
             # matching "images dont go missing while processing".
@@ -2145,7 +2192,33 @@ def _wire_generate_events(status_box: gr.Textbox) -> None:
         _gen["preset_dd"], _gen["ref_images_state"], _gen["ref_mode_radio"],
         _gen["strength_sld"]],
         outputs=[_gen["preview_img"], _gen["output_gallery"], status_box,
-        _gen["generate_btn"]],
+                 _gen["generate_btn"], _gen["stop_btn"]],
+    )
+
+    def on_emergency_stop():
+        """Immediate stop: flag cancel, kill backends, discard outputs.
+
+        Runs on a Gradio worker thread concurrent with the generate generator.
+        The generator's poll loop sees cancel_requested, joins the worker,
+        yields the idle UI (Generate visible, Stop hidden), and returns.
+        Returning updates here is best-effort UI feedback; the generator's
+        own terminal yield is authoritative for the final button states.
+        """
+        msg = inference.emergency_stop()
+        return (
+            gr.update(),  # preview — leave as-is until generator settles
+            gr.update(),  # gallery
+            msg,
+            gr.update(value="Generate Image", variant="primary", interactive=True),
+            gr.update(visible=False),
+        )
+
+    _gen["stop_btn"].click(
+        on_emergency_stop,
+        inputs=[],
+        outputs=[_gen["preview_img"], _gen["output_gallery"], status_box,
+                 _gen["generate_btn"], _gen["stop_btn"]],
+        queue=False,
     )
     # NOTE: no .then(_clear_ref_images) here, on purpose. Reference images are
     # READ at generation time, never consumed — a finished run leaves the list
